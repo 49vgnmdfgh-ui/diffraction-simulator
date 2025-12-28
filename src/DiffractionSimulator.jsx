@@ -498,7 +498,7 @@ const DiffractionSimulator = () => {
   return (
     <div className="w-full max-w-7xl mx-auto p-6 bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen">
       <Card className="bg-white border-gray-300 shadow-xl">
-        <CardHeader className="bg-gradient-to-r from-blue-500 to-indigo-600 pb-8">
+        <CardHeader className="bg-gradient-to-r from-blue-500 to-indigo-600">
           <CardTitle className="text-3xl text-center text-white">
             Fresnel and Fraunhofer Diffraction Simulator
           </CardTitle>
@@ -506,7 +506,7 @@ const DiffractionSimulator = () => {
             Interactive visualization with wave animation and intensity graph
           </p>
         </CardHeader>
-        <CardContent className="bg-white pt-8">
+        <CardContent className="bg-white ">
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
             <div className="space-y-4 mt-4">
               <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-lg border border-blue-200 shadow">
@@ -745,7 +745,7 @@ const DiffractionSimulator = () => {
               </div>
             </div>
             
-            <div className="lg:col-span-3 space-y-6">
+            <div className="lg:col-span-3 space-y-4">
               <div className="bg-gradient-to-r from-blue-600 to-purple-600 p-4 rounded-lg shadow-lg mt-4">
                 <h2 className="text-2xl font-bold text-white text-center">
                   {params.diffractionType === 'fraunhofer' ? 'Fraunhofer' : 'Fresnel'} Diffraction Pattern
@@ -777,7 +777,7 @@ const DiffractionSimulator = () => {
                 <canvas
                   ref={graphRef}
                   width={1000}
-                  height={300}
+                  height={225}
                   className="w-full border-2 border-gray-300 rounded bg-gray-50"
                 />
               </div>
@@ -790,3 +790,4 @@ const DiffractionSimulator = () => {
 };
 
 export default DiffractionSimulator;
+
