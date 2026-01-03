@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Slider } from '@/components/ui/slider';
 import { Button } from '@/components/ui/button';
-import { Lightbulb, LightbulbOff, Info, Play, Pause } from 'lucide-react';
+import { Lightbulb, LightbulbOff, Info, Play, Pause, Trash2 } from 'lucide-react';
 
 const DiffractionSimulator = () => {
   const canvasRef = useRef(null);
@@ -12,6 +12,8 @@ const DiffractionSimulator = () => {
   const [animationActive, setAnimationActive] = useState(true);
   const [wavePhase, setWavePhase] = useState(0);
   const [photonParticles, setPhotonParticles] = useState([]);
+  const [accumulatedParticles, setAccumulatedParticles] = useState([]);
+  const [showParticles, setShowParticles] = useState(false);
   
   const [params, setParams] = useState({
     wavelength: 550,
@@ -24,7 +26,8 @@ const DiffractionSimulator = () => {
     diffractionType: 'fraunhofer',
     circularDiameter: 0.15,
     showWaves: true,
-    animationSpeed: 1
+    animationSpeed: 1,
+    particleEmissionRate: 5
   });
   
   useEffect(() => {
@@ -65,6 +68,123 @@ const DiffractionSimulator = () => {
     
     return () => clearInterval(interval);
   }, [lightOn, animationActive, params.animationSpeed]);
+  
+  // Particle emission for accumulation mode
+  useEffect(() => {
+    if (!lightOn || !showParticles || !animationActive) return;
+    
+    const interval = setInterval(() => {
+      // Emit particles at the specified rate
+      for (let i = 0; i < params.particleEmissionRate; i++) {
+        emitPhotonParticle();
+      }
+    }, 100);
+    
+    return () => clearInterval(interval);
+  }, [lightOn, showParticles, animationActive, params]);
+  
+  const emitPhotonParticle = () => {
+    // Determine which slit the photon goes through based on aperture type
+    const slitPositions = getSlitPositions();
+    if (slitPositions.length === 0) return;
+    
+    // Randomly select a slit
+    const slitY = slitPositions[Math.floor(Math.random() * slitPositions.length)];
+    
+    // Calculate the screen position based on diffraction probability
+    const screenPos = calculatePhotonScreenPosition(slitY);
+    
+    // Create traveling photon
+    const newPhoton = {
+      id: Date.now() + Math.random(),
+      startX: 350,
+      startY: slitY,
+      targetX: screenPos.x,
+      targetY: screenPos.y,
+      progress: 0,
+      speed: 0.02 * params.animationSpeed,
+      arrived: false
+    };
+    
+    setAccumulatedParticles(prev => [...prev, newPhoton]);
+  };
+  
+  const getSlitPositions = () => {
+    const height = 600;
+    const slitPixelWidth = params.slitWidth * 300;
+    let slitPositions = [];
+    
+    if (params.apertureType === 'single') {
+      slitPositions = [height / 2];
+    } else if (params.apertureType === 'double') {
+      const separation = params.slitSeparation * 300;
+      slitPositions = [height / 2 - separation / 2, height / 2 + separation / 2];
+    } else if (params.apertureType === 'multiple') {
+      const totalHeight = (params.numSlits - 1) * params.slitSeparation * 300;
+      const startY = height / 2 - totalHeight / 2;
+      for (let i = 0; i < params.numSlits; i++) {
+        slitPositions.push(startY + i * params.slitSeparation * 300);
+      }
+    } else if (params.apertureType === 'circular') {
+      slitPositions = [height / 2];
+    }
+    
+    return slitPositions;
+  };
+  
+  const calculatePhotonScreenPosition = (slitY) => {
+    const height = 600;
+    const screenHeight = 500;
+    const screenRange = 20;
+    
+    // Use probability distribution based on intensity pattern
+    let attempts = 0;
+    const maxAttempts = 100;
+    
+    while (attempts < maxAttempts) {
+      // Random y position on screen
+      const randomY = (Math.random() - 0.5) * screenRange;
+      const intensity = calculateIntensity(randomY);
+      
+      // Accept or reject based on intensity (rejection sampling)
+      if (Math.random() < intensity) {
+        // Convert to pixel coordinates
+        const screenPixelY = height / 2 + (randomY / screenRange) * screenHeight;
+        // Add random x position across screen width for natural distribution
+        const screenX = 500 + ((params.screenDistance - 500) / (3000 - 500)) * (900 - 500);
+        const randomX = screenX + Math.random() * 100;
+        return { x: randomX, y: screenPixelY };
+      }
+      attempts++;
+    }
+    
+    // Fallback to center if no position found
+    const screenX = 500 + ((params.screenDistance - 500) / (3000 - 500)) * (900 - 500);
+    return { x: screenX + Math.random() * 100, y: height / 2 };
+  };
+  
+  // Update particle positions
+  useEffect(() => {
+    if (!showParticles || !animationActive) return;
+    
+    const interval = setInterval(() => {
+      setAccumulatedParticles(prev => 
+        prev.map(p => {
+          if (p.arrived) return p;
+          
+          const newProgress = Math.min(1, p.progress + p.speed);
+          
+          if (newProgress >= 1) {
+            return { ...p, progress: 1, arrived: true };
+          }
+          
+          return { ...p, progress: newProgress };
+        })
+      );
+    }, 16);
+    
+    return () => clearInterval(interval);
+  }, [showParticles, animationActive]);
   
   const updateParam = (key, value) => {
     setParams(prev => ({ ...prev, [key]: value }));
@@ -188,7 +308,6 @@ const DiffractionSimulator = () => {
     if (lightOn && animationActive) {
       const photonColor = wavelengthToRGB(params.wavelength, 0.9);
       photonParticles.forEach(p => {
-        // Draw glow around bubble
         const gradient = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size * 2);
         gradient.addColorStop(0, `rgba(${photonColor.r}, ${photonColor.g}, ${photonColor.b}, ${p.life * 0.8})`);
         gradient.addColorStop(0.5, `rgba(${photonColor.r}, ${photonColor.g}, ${photonColor.b}, ${p.life * 0.4})`);
@@ -199,7 +318,6 @@ const DiffractionSimulator = () => {
         ctx.arc(p.x, p.y, p.size * 2, 0, Math.PI * 2);
         ctx.fill();
         
-        // Draw solid bubble core
         ctx.fillStyle = `rgba(${photonColor.r}, ${photonColor.g}, ${photonColor.b}, ${p.life})`;
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
@@ -208,7 +326,7 @@ const DiffractionSimulator = () => {
     }
     
     // Draw rays from light source to slits with wavelength color
-    if (lightOn) {
+    if (lightOn && !showParticles) {
       const rayColor = wavelengthToRGB(params.wavelength, 0.5);
       ctx.strokeStyle = `rgba(${rayColor.r}, ${rayColor.g}, ${rayColor.b}, 0.6)`;
       ctx.lineWidth = 2.5;
@@ -262,7 +380,8 @@ const DiffractionSimulator = () => {
       slitPositions = [height / 2];
     }
     
-    if (lightOn && animationActive) {
+    // Draw wave rays
+    if (lightOn && animationActive && !showParticles) {
       slitPositions.forEach(slitY => {
         const numRays = 60;
         for (let i = 0; i < numRays; i++) {
@@ -304,6 +423,61 @@ const DiffractionSimulator = () => {
       });
     }
     
+    // Draw diffraction rays in particle mode
+    if (lightOn && animationActive && showParticles) {
+      slitPositions.forEach(slitY => {
+        const numRays = 40;
+        for (let i = 0; i < numRays; i++) {
+          const angle = (i / (numRays - 1) - 0.5) * Math.PI * 1.2;
+          const rayLength = screenX - slitX;
+          const endX = slitX + rayLength;
+          const endY = slitY + Math.tan(angle) * rayLength;
+          
+          if (endY > -50 && endY < height + 50) {
+            const rayColor = wavelengthToRGB(params.wavelength, 0.3);
+            
+            ctx.strokeStyle = `rgba(${rayColor.r}, ${rayColor.g}, ${rayColor.b}, 0.3)`;
+            ctx.lineWidth = 1.5;
+            
+            ctx.beginPath();
+            ctx.moveTo(slitX, slitY);
+            ctx.lineTo(endX, endY);
+            ctx.stroke();
+          }
+        }
+      });
+    }
+    
+    // Draw traveling and accumulated particles
+    if (showParticles) {
+      const photonColor = wavelengthToRGB(params.wavelength, 1);
+      
+      accumulatedParticles.forEach(p => {
+        const currentX = p.startX + (p.targetX - p.startX) * p.progress;
+        const currentY = p.startY + (p.targetY - p.startY) * p.progress;
+        
+        // Draw particle
+        const particleSize = p.arrived ? 2 : 3;
+        const alpha = p.arrived ? 0.8 : 1;
+        
+        ctx.fillStyle = `rgba(${photonColor.r}, ${photonColor.g}, ${photonColor.b}, ${alpha})`;
+        ctx.beginPath();
+        ctx.arc(currentX, currentY, particleSize, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Add glow for traveling particles
+        if (!p.arrived) {
+          const gradient = ctx.createRadialGradient(currentX, currentY, 0, currentX, currentY, 6);
+          gradient.addColorStop(0, `rgba(${photonColor.r}, ${photonColor.g}, ${photonColor.b}, 0.6)`);
+          gradient.addColorStop(1, `rgba(${photonColor.r}, ${photonColor.g}, ${photonColor.b}, 0)`);
+          ctx.fillStyle = gradient;
+          ctx.beginPath();
+          ctx.arc(currentX, currentY, 6, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      });
+    }
+    
     ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
     ctx.shadowBlur = 15;
     ctx.shadowOffsetX = -5;
@@ -325,7 +499,8 @@ const DiffractionSimulator = () => {
     ctx.fillRect(screenX + screenWidth / 2 - 10, height / 2 + screenHeight / 2, 20, 80);
     ctx.fillRect(screenX + screenWidth / 2 - 40, height / 2 + screenHeight / 2 + 70, 80, 15);
     
-    if (lightOn) {
+    // Draw intensity pattern (only if not in particle mode)
+    if (lightOn && !showParticles) {
       const patternStartY = height / 2 - screenHeight / 2;
       const patternHeight = screenHeight;
       const screenRange = 20;
@@ -349,11 +524,35 @@ const DiffractionSimulator = () => {
       }
     }
     
+    // Draw accumulated particles on screen as individual dots that build up to form lines
+    if (showParticles && lightOn) {
+      const photonColor = wavelengthToRGB(params.wavelength, 1);
+      const arrivedParticles = accumulatedParticles.filter(p => p.arrived);
+      
+      arrivedParticles.forEach(p => {
+        // Draw each particle as a small circular dot with slight glow
+        const gradient = ctx.createRadialGradient(p.targetX, p.targetY, 0, p.targetX, p.targetY, 3);
+        gradient.addColorStop(0, `rgba(${photonColor.r}, ${photonColor.g}, ${photonColor.b}, 0.9)`);
+        gradient.addColorStop(0.5, `rgba(${photonColor.r}, ${photonColor.g}, ${photonColor.b}, 0.5)`);
+        gradient.addColorStop(1, `rgba(${photonColor.r}, ${photonColor.g}, ${photonColor.b}, 0.1)`);
+        
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(p.targetX, p.targetY, 3, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Solid center
+        ctx.fillStyle = `rgba(${photonColor.r}, ${photonColor.g}, ${photonColor.b}, 1)`;
+        ctx.beginPath();
+        ctx.arc(p.targetX, p.targetY, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+    
     ctx.fillStyle = '#222';
     ctx.font = 'bold 16px Arial';
     ctx.fillText('Light Source', lightSourceX - 35, lightSourceY + 50);
     
-    // Draw "Slits" or "Aperture" label with background for better visibility
     const apertureLabel = params.apertureType === 'circular' ? 'Aperture' : 'Slits';
     const labelWidth = ctx.measureText(apertureLabel).width;
     ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
@@ -364,7 +563,6 @@ const DiffractionSimulator = () => {
     ctx.fillStyle = '#222';
     ctx.fillText(apertureLabel, slitX - labelWidth/2, 35);
     
-    // Draw "Screen" label with background
     const screenLabel = 'Screen';
     const screenLabelWidth = ctx.measureText(screenLabel).width;
     ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
@@ -388,7 +586,20 @@ const DiffractionSimulator = () => {
     ctx.font = 'bold 13px Arial';
     ctx.fillText(`Distance: ${params.screenDistance}mm`, (slitX + screenX) / 2 - 45, height - 35);
     
-  }, [lightOn, params, wavePhase, animationActive, photonParticles]);
+    // Display particle count if in particle mode
+    if (showParticles) {
+      const arrivedCount = accumulatedParticles.filter(p => p.arrived).length;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+      ctx.fillRect(10, 10, 180, 40);
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(10, 10, 180, 40);
+      ctx.fillStyle = '#222';
+      ctx.font = 'bold 14px Arial';
+      ctx.fillText(`Particles: ${arrivedCount}`, 20, 35);
+    }
+    
+  }, [lightOn, params, wavePhase, animationActive, photonParticles, showParticles, accumulatedParticles]);
   
   useEffect(() => {
     const graph = graphRef.current;
@@ -448,7 +659,6 @@ const DiffractionSimulator = () => {
     }
     ctx.stroke();
     
-    // Find and label maxima
     const threshold = 0.3;
     let maxima = [];
     for (let i = 1; i < numPoints - 1; i++) {
@@ -457,23 +667,19 @@ const DiffractionSimulator = () => {
       }
     }
     
-    // Sort by intensity
     maxima.sort((a, b) => b.intensity - a.intensity);
     
-    // Label maxima
     ctx.font = 'bold 12px Arial';
     maxima.forEach((max, idx) => {
       const x = max.index;
       const normalizedIntensity = max.intensity / maxIntensity;
       const y = height - (normalizedIntensity * height * 0.85 + height * 0.05);
       
-      // Draw marker
       ctx.fillStyle = idx === 0 ? '#dc2626' : '#2563eb';
       ctx.beginPath();
       ctx.arc(x, y, 4, 0, Math.PI * 2);
       ctx.fill();
       
-      // Draw label
       ctx.fillStyle = idx === 0 ? '#dc2626' : '#2563eb';
       const label = idx === 0 ? 'Primary Max' : `Secondary Max ${idx}`;
       ctx.fillText(label, x - 40, y - 10);
@@ -500,13 +706,13 @@ const DiffractionSimulator = () => {
       <Card className="bg-white border-gray-300 shadow-xl">
         <CardHeader className="bg-gradient-to-r from-blue-500 to-indigo-600">
           <CardTitle className="text-3xl text-center text-white">
-            Fresnel and Fraunhofer Diffraction Simulator
+            DOUBLE SLIT USING FOURIER OPTICS
           </CardTitle>
           <p className="text-center text-blue-100">
-            Interactive visualization with wave animation and intensity graph
+            Interactive visualization with wave animation and particle accumulation
           </p>
         </CardHeader>
-        <CardContent className="bg-white ">
+        <CardContent className="bg-white">
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
             <div className="space-y-4 mt-4">
               <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-lg border border-blue-200 shadow">
@@ -535,7 +741,7 @@ const DiffractionSimulator = () => {
                 
                 <Button
                   onClick={() => setAnimationActive(!animationActive)}
-                  className={`w-full ${animationActive ? 'bg-blue-500 hover:bg-blue-600 text-white' : 'bg-white border-2 border-blue-300 text-blue-700'}`}
+                  className={`w-full mb-3 ${animationActive ? 'bg-blue-500 hover:bg-blue-600 text-white' : 'bg-white border-2 border-blue-300 text-blue-700'}`}
                 >
                   {animationActive ? (
                     <>
@@ -549,39 +755,46 @@ const DiffractionSimulator = () => {
                     </>
                   )}
                 </Button>
+                
+                <Button
+                  onClick={() => setShowParticles(!showParticles)}
+                  className={`w-full ${showParticles ? 'bg-purple-600 hover:bg-purple-700 text-white' : 'bg-purple-100 border-2 border-purple-400 text-purple-900 hover:bg-purple-200'}`}
+                >
+                  {showParticles ? 'Show Wave Mode' : 'Show Particle Mode'}
+                </Button>
+                
+                {showParticles && (
+                  <Button
+                    onClick={() => setAccumulatedParticles([])}
+                    className="w-full mt-3 bg-red-500 hover:bg-red-600 text-white"
+                  >
+                    <Trash2 className="mr-2" size={18} />
+                    Clear Particles
+                  </Button>
+                )}
               </div>
               
-              <div className="bg-gradient-to-br from-green-50 to-emerald-100 p-4 rounded-lg border border-green-200 shadow space-y-4">
-                <h3 className="font-bold mb-3 text-gray-800">Diffraction Type</h3>
-                
-                <div className="grid grid-cols-2 gap-2">
-                  <Button
-                    onClick={() => updateParam('diffractionType', 'fraunhofer')}
-                    className={`w-full font-bold ${params.diffractionType === 'fraunhofer' ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-green-100 border-2 border-green-400 text-green-900 hover:bg-green-200'}`}
-                  >
-                    Fraunhofer
-                  </Button>
-                  <Button
-                    onClick={() => updateParam('diffractionType', 'fresnel')}
-                    className={`w-full font-bold ${params.diffractionType === 'fresnel' ? 'bg-orange-600 hover:bg-orange-700 text-white' : 'bg-orange-100 border-2 border-orange-400 text-orange-900 hover:bg-orange-200'}`}
-                  >
-                    Fresnel
-                  </Button>
-                </div>
-                
-                <div className="bg-white p-3 rounded border border-gray-200 text-xs">
-                  <div className="flex items-start gap-2">
-                    <Info size={16} className="mt-0.5 flex-shrink-0 text-blue-600" />
-                    <div>
-                      <div className="font-bold mb-1 text-gray-800">Fresnel Number: {fresnelNumber.toFixed(2)}</div>
-                      <div className="text-gray-600">
-                        {fresnelNumber < 1 ? 'Far-field (Fraunhofer)' : 'Near-field (Fresnel)'}
-                      </div>
-                    </div>
+              {showParticles && (
+                <div className="bg-gradient-to-br from-purple-50 to-pink-100 p-4 rounded-lg border border-purple-200 shadow">
+                  <h3 className="font-bold mb-3 text-gray-800">Particle Settings</h3>
+                  
+                  <div>
+                    <label className="block text-sm font-medium mb-2 text-gray-700">
+                      Emission Rate: {params.particleEmissionRate} particles/sec
+                    </label>
+                    <Slider
+                      value={[params.particleEmissionRate]}
+                      onValueChange={([v]) => updateParam('particleEmissionRate', v)}
+                      min={1}
+                      max={20}
+                      step={1}
+                      className="w-full"
+                    />
                   </div>
                 </div>
-              </div>
+              )}
               
+
               <div className="bg-gradient-to-br from-purple-50 to-pink-100 p-4 rounded-lg border border-purple-200 shadow space-y-4">
                 <h3 className="font-bold mb-3 text-gray-800">Light Properties</h3>
                 
@@ -746,9 +959,54 @@ const DiffractionSimulator = () => {
             </div>
             
             <div className="lg:col-span-3 space-y-4">
-              <div className="bg-gradient-to-r from-blue-600 to-purple-600 p-4 rounded-lg shadow-lg mt-4">
+              <div className="bg-white p-6 rounded-lg shadow-lg mt-4 border-2 border-gray-300">
+                <h3 className="text-xl font-bold text-gray-800 mb-3">Formula</h3>
+                <div className="bg-gray-50 p-4 rounded border border-gray-300">
+                  <div className="text-center text-2xl font-mono mb-4">
+                    I(y) = I₀ · [sinc(β)]² · cos²(δ)
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div className="bg-white p-2 rounded border border-gray-200">
+                      <span className="font-bold text-blue-600">β = </span>
+                      <span className="font-mono">π·a·y / (λ·L)</span>
+                    </div>
+                    <div className="bg-white p-2 rounded border border-gray-200">
+                      <span className="font-bold text-purple-600">δ = </span>
+                      <span className="font-mono">π·d·y / (λ·L)</span>
+                    </div>
+                  </div>
+                  <div className="mt-4 space-y-2 text-sm text-gray-700">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold bg-blue-100 px-2 py-1 rounded">a</span>
+                      <span>= Slit Width ({params.slitWidth.toFixed(3)} mm)</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold bg-purple-100 px-2 py-1 rounded">d</span>
+                      <span>= Slit Separation ({params.slitSeparation.toFixed(3)} mm)</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold bg-green-100 px-2 py-1 rounded">λ</span>
+                      <span>= Wavelength ({params.wavelength} nm)</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold bg-yellow-100 px-2 py-1 rounded">L</span>
+                      <span>= Screen Distance ({params.screenDistance} mm)</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold bg-red-100 px-2 py-1 rounded">y</span>
+                      <span>= Position on screen</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold bg-orange-100 px-2 py-1 rounded">I(y)</span>
+                      <span>= Intensity at position y</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="bg-gradient-to-r from-blue-600 to-purple-600 p-4 rounded-lg shadow-lg">
                 <h2 className="text-2xl font-bold text-white text-center">
-                  {params.diffractionType === 'fraunhofer' ? 'Fraunhofer' : 'Fresnel'} Diffraction Pattern
+                  Diffraction Pattern
                   {' - '}
                   {params.apertureType === 'single' && 'Single Slit'}
                   {params.apertureType === 'double' && 'Double Slit'}
@@ -756,14 +1014,16 @@ const DiffractionSimulator = () => {
                   {params.apertureType === 'circular' && 'Circular Aperture'}
                 </h2>
                 <p className="text-center text-blue-100 mt-1 text-sm">
-                  {params.diffractionType === 'fraunhofer' ? 'Far-field approximation' : 'Near-field diffraction'} • 
+                  {showParticles ? 'Particle Mode: Individual photons accumulating' : 'Wave Mode: Interference pattern'} • 
                   Wavelength: {params.wavelength}nm • 
                   Distance: {params.screenDistance}mm
                 </p>
               </div>
               
               <div className="bg-white rounded-lg p-4 border-2 border-blue-200 shadow-lg">
-                <h3 className="text-sm font-bold mb-2 text-gray-700">Diffraction Setup with Wave Animation</h3>
+                <h3 className="text-sm font-bold mb-2 text-gray-700">
+                  {showParticles ? 'Particle Accumulation View' : 'Diffraction Setup with Wave Animation'}
+                </h3>
                 <canvas
                   ref={canvasRef}
                   width={1000}
@@ -790,4 +1050,3 @@ const DiffractionSimulator = () => {
 };
 
 export default DiffractionSimulator;
-
