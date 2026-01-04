@@ -30,6 +30,8 @@ const DiffractionSimulator = () => {
     particleEmissionRate: 5
   });
   
+  const [prevScreenDistance, setPrevScreenDistance] = useState(1000);
+  
   useEffect(() => {
     if (!lightOn || !animationActive) return;
     
@@ -78,7 +80,7 @@ const DiffractionSimulator = () => {
       for (let i = 0; i < params.particleEmissionRate; i++) {
         emitPhotonParticle();
       }
-    }, 100);
+    }, 50);
     
     return () => clearInterval(interval);
   }, [lightOn, showParticles, animationActive, params]);
@@ -185,6 +187,14 @@ const DiffractionSimulator = () => {
     
     return () => clearInterval(interval);
   }, [showParticles, animationActive]);
+  
+  // Clear particles when screen distance changes
+  useEffect(() => {
+    if (params.screenDistance !== prevScreenDistance) {
+      setAccumulatedParticles([]);
+      setPrevScreenDistance(params.screenDistance);
+    }
+  }, [params.screenDistance, prevScreenDistance]);
   
   const updateParam = (key, value) => {
     setParams(prev => ({ ...prev, [key]: value }));
